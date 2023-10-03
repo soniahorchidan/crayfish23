@@ -1,0 +1,1 @@
+2-step model serialization: Model -> Content -> byte[]

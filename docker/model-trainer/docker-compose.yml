@@ -1,0 +1,13 @@
+version: '3.3'
+services:
+  model-trainer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: crayfish-model-trainer
+    container_name: 'crayfish-model-trainer'
+    working_dir: /home/user/crayfish
+    volumes:
+      - ../../resources/embedded:/home/user/crayfish/embedded 
+      - ../../resources/external:/home/user/crayfish/external
+      - ../../resources/training:/home/user/crayfish/training

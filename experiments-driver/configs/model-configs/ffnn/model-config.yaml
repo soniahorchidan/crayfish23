@@ -1,0 +1,11 @@
+model.name: ffnn
+input.shape: 1, 28, 28
+input.name: input_1
+
+model.path.nd4j: ./resources/embedded/ffnn/nd4j/model-1/
+model.path.dl4j: ./resources/embedded/ffnn/dl4j/model-1/
+model.path.onnx: ./resources/embedded/ffnn/onnx/model-1/
+model.path.tf-savedmodel: ./resources/embedded/ffnn/tf-savedmodel/model-1/
+model.path.torch_jit: ./resources/external/ffnn/tor-s/models/
+model.path.torchserve: 10.132.0.16:7070/predictions/ffnn/
+model.path.tf-serving: 10.132.0.16:8500

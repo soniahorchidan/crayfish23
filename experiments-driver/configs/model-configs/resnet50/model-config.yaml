@@ -1,0 +1,11 @@
+model.name: resnet50
+input.shape: 1, 3, 224, 224
+input.name: input_2
+
+model.path.nd4j: ./resources/embedded/resnet50/nd4j/model-1/
+model.path.dl4j: ./resources/embedded/resnet50/dl4j/model-1/
+model.path.onnx: ./resources/embedded/resnet50/onnx/model-1/
+model.path.tf-savedmodel: ./resources/embedded/resnet50/tf-savedmodel/model-1/
+model.path.torch_jit: ./resources/external/resnet50/tor-s/models/
+model.path.torchserve: 10.132.0.16:7070/predictions/resnet50/
+model.path.tf-serving: 10.132.0.16:8500

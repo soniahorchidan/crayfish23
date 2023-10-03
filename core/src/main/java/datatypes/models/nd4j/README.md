@@ -1,0 +1,1 @@
+ND4J currently supports sequential models only.
