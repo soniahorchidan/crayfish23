@@ -328,9 +328,25 @@ public class MyModel extends CrayfishModel {
         // Use the input data to make predictions
     }
 }
-
 ```
 
 The implementations corresponding to the supported models can be found under [core/src/main/java/datatypes/models](https://github.com/soniahorchidan/crayfish23/tree/main/core/src/main/java/datatypes/models).
 
 Note that there is no distinction between embedded and external tools; external tools need to send requests to the external serving instance to perform the inference. To do so, Crayfish provides the helper class ```InferenceRequest``` to perform HTTP requests to a given input. The class can be extended to customize gRPC requests as well. Examples can be found under [core/src/main/java/request/](https://github.com/soniahorchidan/crayfish23/tree/main/core/src/main/java/request).
+
+### New Pre-trained ML Models
+
+Crayfish supports two models out of the box: FFNN and ResNet50. However, the users can configure the framework to serve other models of choice. To do so, simply create a new directory containing model configurations under [experiments-driver/configs/model-configs](https://github.com/soniahorchidan/crayfish23/tree/main/experiments-driver/configs/model-configs). Assuming the node model is called ```new_model```, create a file ```model-config.yaml``` inside ```experiments-driver/configs/model-configs/new_model``` and provide the following information about the model:
+
+```
+model.name: new_model
+input.shape: 1, 1   # the input shape of new_model
+input.name: input_1  # the name of the input for the model
+
+model.path.dl4j: path/to/dl4j/new_model
+model.path.onnx: path/to/onnx/new_model
+model.path.tf-savedmodel: path/to/tf-savedmodel/new_model
+model.path.torch_jit: path/to/torch/new_model
+model.path.torchserve: torchserve:endpoint/newmodel
+model.path.tf-serving: tfserving:endpoint/newmodel
+```
