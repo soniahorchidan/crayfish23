@@ -15,6 +15,75 @@
 └── results-analysis      # Notebooks to analyze the results.
 ```
 
+## Supported Tools
+
+### Pre-trained Models
+
+<table>
+  <caption></caption>
+  <thead>
+    <tr>
+      <th colspan="2"></th>
+      <th>FNN</th>
+      <th>ResNet50</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="2">Input Size</td>
+      <td>28x28</td>
+      <td>224x224x3</td>
+    </tr>
+    <tr>
+      <td colspan="2">Output Size</td>
+      <td>10x1</td>
+      <td>1000x1</td>
+    </tr>
+    <tr>
+      <td colspan="2">Parameters Number</td>
+      <td>28K</td>
+      <td>23M</td>
+    </tr>
+    <tr>
+      <td rowspan="4">Model Size</td>
+      <td>ONNX</td>
+      <td>113 KB</td>
+      <td>97 MB</td>
+    </tr>
+    <tr>
+      <td>Torch</td>
+      <td>115 KB</td>
+      <td>98 MB</td>
+    </tr>
+    <tr>
+      <td>H5</td>
+      <td>133 KB</td>
+      <td>98 MB</td>
+    </tr>
+    <tr>
+      <td>SavedModel</td>
+      <td>508 KB</td>
+      <td>101 MB</td>
+    </tr>
+  </tbody>
+</table>
+
+### Stream Processors
+
+- Apache Flink 1.15.2
+- Apache Kafka Streams 3.2.3
+- Spark Structured Streaming 3.3.2
+- Ray 2.4
+
+### Embedded Serving Frameworks
+
+- ONNX 1.12.1
+- DeepLearning4j 1.0.0-M2.1
+- TensorFlow Java (SavedModel) 1.13.1
+
+### External Serving Frameworks
+- TorchServe 0.7.1
+- TensorFlow Serving 2.11.1
 
 ## Quick Start
 
@@ -27,7 +96,9 @@
 5. Docker installation
 
 
-### Run Locally
+### Experiments
+We offer an option to test the tools locally before deploying to a cluster. 
+
 ```bash
 # train ffnn/resnet50 models in different model formats
 ./resources/train-models.sh
@@ -49,7 +120,7 @@
 ```
 Arguments:
                                        [!] NOTE: Configs in 'experiments-driver/configs/exp-configs/[-ec]/[-e]' will be run.
--e     | --experiments                 Independent variable sets to run: a=all, i=input rate, b=batch size, s=scalability.
+-e     | --experiments                 Independent variable sets to run: a=all, i=input rate, b=batch size, s=scalability, r=bursty rate.
 -ec    | --experiments-control         Controlled variable sets to run: s=small, l=large, d=debug.
                                          - small: Run input rate 256 for the scalability experiment.
                                            [!] NOTE: ResNet50 is recommended for this option due to the large
@@ -69,7 +140,7 @@ Arguments:
 ```
 
 ### Run on Cluster
-To adapt the experiment to the cluster,
+To adapt the experiments to be executed on the cluster,
 
 1. Build the required docker images on different VMs and train models (commands are from `./docker/docker-build.sh`)
     1. Kafka consumer VM
@@ -130,7 +201,7 @@ To adapt the experiment to the cluster,
             -em $EXECUTION_MODE_OPT \
             -eid $EXP_UNIQUE_ID"
         ```
-1. Update ip addresses for each VM in `experiments-driver/configs/global-configs-cluster.properties`
+1. Update the IP addresses for each VM in `experiments-driver/configs/global-configs-cluster.properties`
 
 ### Kafka Overhead Experiments
 
@@ -154,112 +225,77 @@ Arguments:
 -em    | --execution-mode              Execution mode: l=local, c=cluster.
 ```
 
-## Evaluation
+## Extending Crayfish
 
-### Pre-trained Models Configurations
+Crayfish provides a set of interfaces that allow developers to extend the benchmarking frameworks with other stream processing systems, model serving tools, and pre-trained models. We showcase examples of how to do so for each type of system.
 
-<table>
-  <caption></caption>
-  <thead>
-    <tr>
-      <th colspan="2"></th>
-      <th>FNN</th>
-      <th>ResNet50</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td colspan="2">Input Size</td>
-      <td>28x28</td>
-      <td>224x224x3</td>
-    </tr>
-    <tr>
-      <td colspan="2">Output Size</td>
-      <td>10x1</td>
-      <td>1000x1</td>
-    </tr>
-    <tr>
-      <td colspan="2">Parameters Number</td>
-      <td>28K</td>
-      <td>23M</td>
-    </tr>
-    <tr>
-      <td rowspan="4">Model Size</td>
-      <td>ONNX</td>
-      <td>113 KB</td>
-      <td>97 MB</td>
-    </tr>
-    <tr>
-      <td>Torch</td>
-      <td>115 KB</td>
-      <td>98 MB</td>
-    </tr>
-    <tr>
-      <td>H5</td>
-      <td>133 KB</td>
-      <td>98 MB</td>
-    </tr>
-    <tr>
-      <td>SavedModel</td>
-      <td>508 KB</td>
-      <td>101 MB</td>
-    </tr>
-  </tbody>
-</table>
+### New Stream Processors
 
-### Considered Tools
+New stream processors can be added through abstractions similar to adapters. These adapters need to extend the Crayfish interface and provide functionalities for input reading, model scoring, and output writing alongside logic to set the parallelism of the computation. The adapter needs to provide also abstractions for a stream builder, the generic operator type, the sink operator, and the model type to serve. The model type can be chosen from the list of models supported out of the box or can be a custom model defined by the Crayfish user.
 
-- Apache Flink 1.15.2
-- Apache Kafka Streams 3.2.3
-- Spark Structured Streaming 3.3.2
-- Ray 2.4
-- ONNX 1.12.1
-- DeepLearning4j 1.0.0-M2.1
-- TensorFlow Java 1.13.1
-- TorchServe 0.7.1
-- TensorFlow Serving 2.11.1
+The basic adapter should extend the ```Crayfish``` abstract class, as below. Next, implement the required methods for building your streaming application.
 
-### Deployment Configuration on Google Cloud Platform
+```java
+public class MyCrayfishAdapter extends Crayfish<MyStreamBuilder, MyOperatorType, MySinkType, MyModel> {
+    // Implement required methods
+    // ...
 
-All the machines were equipped with Intel(R) Xeon(R) CPU @ 2.20GHz.
-<table>
-    <thead>
-        <tr>
-            <th>Virtual Machine</th>
-            <th>vCPUs</th>
-            <th>RAM (GB)</th>
-        </tr>
-    </thead>
-    <tbody>
-        <tr>
-            <td>(4 x) Kafka Broker</td>
-            <td>4</td>
-            <td>15</td>
-        </tr>
-        <tr>
-            <td>Zookeeper</td>
-            <td>2</td>
-            <td>8</td>
-        </tr>
-        <tr>
-            <td>Input Producer</td>
-            <td>32</td>
-            <td>28</td>
-        </tr>
-        <tr>
-            <td>Output Consumer</td>
-            <td>4</td>
-            <td>15</td>
-        </tr>
-        <tr>
-            <td>Stream Processor</td>
-            <td>64</td>
-            <td>240</td>
-        </tr>
-        <tr>
-            <td>External Server</td>
-            <td>16</td>
-            <td>60</td>
-        </tr>
-    </tbody>
-</table>
+    @Override
+    public MyStreamBuilder streamBuilder() {
+        // Implement the logic to create and return the stream builder specific to the stream processor
+    }
+
+    @Override
+    public MyOperatorType inputOp(MyStreamBuilder streamBuilder) {
+        // Implement the logic to create and return a source operator
+    }
+
+    @Override
+    public MyOperatorType embeddedScoringOp(MyStreamBuilder sb, MyOperatorType input) throws Exception {
+        // Implement the logic for embedded ML serving
+    }
+
+    @Override
+    public MyOperatorType externalScoringOp(MyStreamBuilder sb, MyOperatorType input) throws Exception {
+        // Implement the logic for external ML serving
+    }
+
+    @Override
+    public CrayfishUtils.Either<MyOperatorType, MySinkType> outputOp(MyStreamBuilder sb,
+                                                                     MyOperatorType output) throws Exception {
+        // Implement the logic for creating and returning output. Depending on the stream processor intrinsics,
+        // return either the sink or another abstraction. This will be used in the start() method to start the
+        // streaming application.
+    }
+
+    @Override
+    public void start(MyStreamBuilder sb, Properties metaData,
+                      CrayfishUtils.Either<MyOperatorType, MySinkType> out) throws Exception {
+        // Implement the logic to start the processing
+    }
+
+    @Override
+    public boolean hasOperatorParallelism() {
+        // Return true if operator parallelism is supported
+    }
+
+    @Override
+    public CrayfishUtils.Either<MyOperatorType, MySinkType> setOperatorParallelism(
+            CrayfishUtils.Either<MyOperatorType, MySinkType> operator, int parallelism) throws Exception {
+        // Implement the logic to set operator parallelism
+        // Return null if not supported
+    }
+
+    @Override
+    public void setDefaultParallelism(MyStreamBuilder sb, Properties metaData, int parallelism) throws Exception {
+        // Implement the logic to set default parallelism
+    }
+
+    @Override
+    public Properties addMetadata() throws Exception {
+        // Implement the logic to add metadata. Some stream processing systems require extra configurations to be
+        // set via Properties.
+        // Return null if not required.
+    }
+}
+```
