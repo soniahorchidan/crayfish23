@@ -231,9 +231,9 @@ Crayfish provides a set of interfaces that allow developers to extend the benchm
 
 ### New Stream Processors
 
-New stream processors can be added through abstractions similar to adapters. These adapters need to extend the Crayfish interface and provide functionalities for input reading, model scoring, and output writing alongside logic to set the parallelism of the computation. The adapter needs to provide also abstractions for a stream builder, the generic operator type, the sink operator, and the model type to serve. The model type can be chosen from the list of models supported out of the box or can be a custom model defined by the Crayfish user.
+New stream processors can be added through abstractions similar to adapters. These adapters need to extend the Crayfish interface and provide functionalities for input reading, model scoring, and output writing alongside logic to set the parallelism of the computation. The adapter needs to provide also abstractions for a stream builder, the generic operator type, and the sink operator. When using the adapter, the model type can be chosen from the list of models supported out of the box or can be a custom model defined by the Crayfish user.
 
-The basic adapter should extend the ```Crayfish``` abstract class, as below. Next, implement the required methods for building your streaming application.
+The adapter should extend the ```Crayfish``` abstract class, as below. Next, implement the required methods for building your streaming application.
 
 ```java
 public class MyCrayfishAdapter extends Crayfish<MyStreamBuilder, MyOperatorType, MySinkType, MyModel> {
@@ -299,3 +299,38 @@ public class MyCrayfishAdapter extends Crayfish<MyStreamBuilder, MyOperatorType,
     }
 }
 ```
+
+The adapter for Apache Flink, Kafka Streams, and Spark Structured Streaming can be found under [crayfish-java/adapters/](https://github.com/soniahorchidan/crayfish23/tree/main/crayfish-java/adapters/src/main/java).  
+
+### New Model Serving Tools
+
+Crayfish can be extended to support ML serving tools besides the ones included off-the-shelf. To do so, create a new Java class and extend ```CrayfishModel```. Then, implement the required methods as below.
+
+
+```java
+public class MyModel extends CrayfishModel {
+
+    @Override
+    public void loadModel(String modelName, String location) throws Exception {
+        // Implement the logic to load the model
+        // Use modelName and location to load the model from the specified location
+    }
+
+    @Override
+    public void build() throws Exception {
+        // Implement the logic to build the model
+        // This method is called after loading the model
+    }
+
+    @Override
+    public CrayfishPrediction apply(CrayfishInputData input) throws Exception {
+        // Implement the logic to apply the model to the input data
+        // Use the input data to make predictions
+    }
+}
+
+```
+
+The implementations corresponding to the supported models can be found under [core/src/main/java/datatypes/models](https://github.com/soniahorchidan/crayfish23/tree/main/core/src/main/java/datatypes/models).
+
+Note that there is no distinction between embedded and external tools; external tools need to send requests to the external serving instance to perform the inference. To do so, Crayfish provides the helper class ```InferenceRequest``` to perform HTTP requests to a given input. The class can be extended to customize gRPC requests as well. Examples can be found under [core/src/main/java/request/](https://github.com/soniahorchidan/crayfish23/tree/main/core/src/main/java/request).
