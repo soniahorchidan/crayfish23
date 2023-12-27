@@ -300,7 +300,14 @@ public class MyCrayfishAdapter extends Crayfish<MyStreamBuilder, MyOperatorType,
 }
 ```
 
-The adapter for Apache Flink, Kafka Streams, and Spark Structured Streaming can be found under [crayfish-java/adapters/](https://github.com/soniahorchidan/crayfish23/tree/main/crayfish-java/adapters/src/main/java).  
+The users can use the new adapter, for instance, to serve DeepLearning4J models, for instance, as follows:
+
+```java
+Crayfish adapter = new MyCrayfishAdapter<DL4JModel>(DL4JModel.class, config);
+adapter.run();
+```
+
+The adapters for Apache Flink, Kafka Streams, and Spark Structured Streaming can be found under [crayfish-java/adapters/](https://github.com/soniahorchidan/crayfish23/tree/main/crayfish-java/adapters/src/main/java).  
 
 ### New Model Serving Tools
 
@@ -330,6 +337,14 @@ public class MyModel extends CrayfishModel {
 }
 ```
 
+The users can use the new model, for instance, in conjunction with Spark Structured Streaming, for instance, as follows:
+
+```java
+Crayfish adapter = new SparkSSCrayfishAdapter<MyModel>(MyModel.class, config);
+adapter.run();
+```
+
+
 The implementations corresponding to the supported models can be found under [core/src/main/java/datatypes/models](https://github.com/soniahorchidan/crayfish23/tree/main/core/src/main/java/datatypes/models).
 
 Note that there is no distinction between embedded and external tools; external tools need to send requests to the external serving instance to perform the inference. To do so, Crayfish provides the helper class ```InferenceRequest``` to perform HTTP requests to a given input. The class can be extended to customize gRPC requests as well. Examples can be found under [core/src/main/java/request/](https://github.com/soniahorchidan/crayfish23/tree/main/core/src/main/java/request).
@@ -350,3 +365,5 @@ model.path.torch_jit: path/to/torch/new_model
 model.path.torchserve: torchserve:endpoint/newmodel
 model.path.tf-serving: tfserving:endpoint/newmodel
 ```
+
+These configurations will be passed to the adapter corresponding to the chosen stream processor.
