@@ -1,4 +1,4 @@
-# Crayfish: Benchmarking Model Serving in Data Streaming
+# Crayfish: Navigating the Labyrinth of Machine Learning Inference in Stream Processing Systems
 
 ## Project Structure
 
