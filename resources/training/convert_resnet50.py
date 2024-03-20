@@ -3,11 +3,8 @@ from pathlib import Path
 import torch
 import tensorflow as tf
 
-import os
-os.chdir(os.path.dirname(os.path.realpath(__file__)))
-
-TF_SERVING_PATH = "../external/tf-s/resnet50/models/resnet50/1/"
-TORCHSERVE_PATH = "../external/tor-s/resnet50/models/"
+TF_SERVING_PATH = "../external/resnet50/tf-s/models/resnet50/1/"
+TORCHSERVE_PATH = "../external/resnet50/tor-s/models/"
 DL4J_PATH = "../embedded/resnet50/tf-savedmodel/model-1/"
 ONNX_PATH = "../embedded/resnet50/onnx/model-1/"
 SAVEDMODEL_PATH = "../embedded/resnet50/tf-savedmodel/model-1/"

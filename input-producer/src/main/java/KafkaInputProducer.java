@@ -1,6 +1,8 @@
 import com.google.common.util.concurrent.RateLimiter;
 import datatypes.datapoints.CrayfishDataBatch;
 import datatypes.datapoints.CrayfishDataGenerator;
+import org.apache.commons.configuration2.Configuration;
+import org.apache.commons.configuration2.ex.ConfigurationException;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -9,7 +11,6 @@ import org.apache.kafka.common.serialization.Serializer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import serde.data.CrayfishDataBatchSerde;
-import config.CrayfishConfig;
 
 import java.io.IOException;
 import java.util.Properties;
@@ -17,15 +18,34 @@ import java.util.function.Consumer;
 
 public class KafkaInputProducer {
     private static final Logger logger = LogManager.getLogger(KafkaInputProducer.class);
-    private final CrayfishConfig config;
+    private final Configuration config;
     private final CrayfishDataGenerator generator;
-    private final RateLimiter rateLimiter;
+    private final RateLimiter rateLimiterStable;
+    private final RateLimiter rateLimiterBursty;
+    private RateLimiter currentRateLimiter;
 
-    public KafkaInputProducer(int inputRate, int numRecords, CrayfishConfig config) {
+    private long switchTime;
+
+    public KafkaInputProducer(int inputRate, int numRecords, int batchSize, int[] inputSize, boolean isBursty,
+                              Configuration config) throws ConfigurationException {
         this.config = config;
-        this.generator = new CrayfishDataGenerator(config.getInt("bs"), config.getModelInputShape(), numRecords);
+        this.generator = new CrayfishDataGenerator(batchSize, inputSize, numRecords);
         double effectiveInputRate = inputRate >= 0 ? inputRate : -1.0 / inputRate;
-        this.rateLimiter = RateLimiter.create(effectiveInputRate);
+
+        if (isBursty) {
+            // if the workload is bursty, then we get as argument the maximum input rate required to be sustained, which
+            // is the input rate at the peak time. In this case, the "stable" time is 70% of the sustainable
+            // throughput. Mind that the bursty rate is 110% of the sustainable throughput.
+            this.rateLimiterStable = RateLimiter.create(0.7 * effectiveInputRate / 1.1);
+            this.rateLimiterBursty = RateLimiter.create(effectiveInputRate);
+            // create bursts after 2 minutes
+            this.switchTime = System.currentTimeMillis() + 120_000;
+            // start with stable rate
+            this.currentRateLimiter = this.rateLimiterStable;
+        } else {
+            this.rateLimiterStable = RateLimiter.create(effectiveInputRate);
+            this.rateLimiterBursty = null;
+        }
     }
 
     public void run() throws IOException {
@@ -34,28 +54,44 @@ public class KafkaInputProducer {
 
     public void publishMessages() throws IOException {
         final Producer<Integer, CrayfishDataBatch> producer = getProducerProperties();
+
         // Send experiment records
         this.generator.forEachRemaining(new Consumer<CrayfishDataBatch>() {
             @Override
             public void accept(CrayfishDataBatch inputBatch) {
                 final ProducerRecord<Integer, CrayfishDataBatch> record = new ProducerRecord<Integer, CrayfishDataBatch>(
-                        config.getString("in"), null, null, inputBatch.hashCode(), inputBatch);
+                        config.getString("kafka.input.data.topic"), null, null, inputBatch.hashCode(), inputBatch);
                 producer.send(record);
-                //logger.debug("Sent record created at timestamp " + record.value().getCreationTimestamp());
-                rateLimiter.acquire();
+                RateLimiter currentLimiter = getCurrentRateLimiter();
+                currentLimiter.acquire();
             }
         });
     }
 
+    private RateLimiter getCurrentRateLimiter() {
+        // Switch rate limiters such that the stable rate workload runs for 2 minutes.
+        // The burst lasts for 15 seconds.
+        if (System.currentTimeMillis() >= switchTime) {
+            if (this.currentRateLimiter.equals(this.rateLimiterStable)) {
+                switchTime = System.currentTimeMillis() + 30_000;
+                this.currentRateLimiter = rateLimiterBursty;
+            } else {
+                switchTime = System.currentTimeMillis() + 120_000;
+                this.currentRateLimiter = rateLimiterStable;
+            }
+        }
+        return this.currentRateLimiter;
+    }
+
     private Producer<Integer, CrayfishDataBatch> getProducerProperties() throws IOException {
         Properties properties = new Properties();
-        // String bootstrapServer = config.getString("kafka.bootstrap.servers");
-        properties.setProperty("bootstrap.servers", config.getString("ce"));
+        String bootstrapServer = config.getString("kafka.bootstrap.servers");
+        properties.setProperty("bootstrap.servers", bootstrapServer);
         properties.setProperty("group.id", "KafkaInputProducer");
 
-        if (config.hasOption("user") && config.hasOption("pswd")) {
-            String username = config.getString("user");
-            String password = config.getString("pswd");
+        if (config.containsKey("kafka.auth.username") && config.containsKey("kafka.auth.password")) {
+            String username = config.getString("kafka.auth.username");
+            String password = config.getString("kafka.auth.password");
             String jaasConf =
                     "org.apache.kafka.common.security.plain.PlainLoginModule required username=\"" + username +
                     "\" password=\"" + password + "\";";
@@ -65,7 +101,7 @@ public class KafkaInputProducer {
         }
 
         // set the maximum request size to allow for batching for the large models
-        properties.setProperty(ProducerConfig.MAX_REQUEST_SIZE_CONFIG, config.getString("rs"));
+        properties.setProperty(ProducerConfig.MAX_REQUEST_SIZE_CONFIG, config.getString("kafka.max.req.size"));
 
         return new org.apache.kafka.clients.producer.KafkaProducer<Integer, CrayfishDataBatch>(properties,
                                                                                                new IntegerSerializer(),

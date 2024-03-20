@@ -19,7 +19,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import serde.data.CrayfishDataBatchSerde;
 import utils.CrayfishUtils;
-import config.CrayfishConfig;
 
 import java.io.IOException;
 import java.io.Serializable;
@@ -30,8 +29,8 @@ public class NoOpFlinkAdapter extends
         implements Serializable {
     private static final Logger logger = LogManager.getLogger(NoOpFlinkAdapter.class);
 
-    public NoOpFlinkAdapter(CrayfishConfig config) throws ConfigurationException {
-        super(ONNXModel.class, "onnx", null, config, false);
+    public NoOpFlinkAdapter(String globalConfigPath, String experimentConfigPath) throws ConfigurationException {
+        super(ONNXModel.class, "onnx", null, globalConfigPath, experimentConfigPath, false);
     }
 
     @Override
@@ -41,7 +40,7 @@ public class NoOpFlinkAdapter extends
 
     @Override
     public SingleOutputStreamOperator<CrayfishDataBatch> inputOp(StreamExecutionEnvironment streamBuilder) {
-        // TODO(user): common for all stream processors probably
+        // TODO: common for all stream processors probably
         Properties properties = getKafkaConsumerProps();
         KafkaSource<CrayfishDataBatch> source = KafkaSource.<CrayfishDataBatch>builder().setTopics(inputDataTopic)
                                                            .setStartingOffsets(OffsetsInitializer.earliest())

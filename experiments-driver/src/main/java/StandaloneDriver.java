@@ -8,7 +8,8 @@ public class StandaloneDriver {
     public static void main(String[] args) throws Exception {
         CommandLine parser = getParser(args);
         FlinkONNXStandalone.run(parser.getOptionValue("gconf"), parser.getOptionValue("mconf"),
-                                parser.getOptionValue("econf"), Integer.parseInt(parser.getOptionValue("er")));
+                                parser.getOptionValue("econf"), Integer.parseInt(parser.getOptionValue("er")),
+                                Integer.parseInt(parser.getOptionValue("mir")));
     }
 
     private static CommandLine getParser(String[] args) {
@@ -29,6 +30,10 @@ public class StandaloneDriver {
         Option er = new Option("er", "exp-records", true, "Number of records to be generated.");
         er.setRequired(true);
         options.addOption(er);
+
+        Option mir = new Option("mir", "max-input-rate", true, "Maximum input rate per producer.");
+        mir.setRequired(true);
+        options.addOption(mir);
 
         CommandLineParser parser = new DefaultParser();
         HelpFormatter formatter = new HelpFormatter();

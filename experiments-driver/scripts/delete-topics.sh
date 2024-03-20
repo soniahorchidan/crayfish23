@@ -26,20 +26,23 @@ while [[ $# -gt 0 ]]; do
     ;;
   esac
 done
+MR=$(getProperty $GLOBAL_CONFIGS "kafka.input.root.topic")
+IN_TOPIC=$(echo "$MR" | tr ',' '\n')
 
-IN_TOPIC=$(getProperty $GLOBAL_CONFIGS "kafka.input.root.topic")
-OUT_TOPIC=$(getProperty $GLOBAL_CONFIGS "kafka.output.root.topic")
-BOOTSTRAP_SERVER=$(getProperty $GLOBAL_CONFIGS "kafka.client.endpoint")
+MR=$(getProperty $GLOBAL_CONFIGS "kafka.output.root.topic")
+OUT_TOPIC=$(echo "$MR" | tr ',' '\n')
 
+MR=$(getProperty $GLOBAL_CONFIGS "kafka.bootstrap.servers")
+BOOSTRAP_SERVER=$(echo "$MR" | tr ',' '\n')
+
+echo "Deleting Kafka Topics..."
 if [[ $EXECUTION_MODE == 'l' ]]; then
-  SH_TOPIC="${KAFKA_HOME}/bin/kafka-topics.sh --bootstrap-server $BOOTSTRAP_SERVER"
+  docker exec crayfish-kafka-1 kafka-topics --bootstrap-server $BOOSTRAP_SERVER --delete --topic "$IN_TOPIC.*" --if-exists
+  docker exec crayfish-kafka-1 kafka-topics --bootstrap-server $BOOSTRAP_SERVER --delete --topic "$OUT_TOPIC.*" --if-exists
+  docker exec crayfish-kafka-1 kafka-topics --bootstrap-server $BOOSTRAP_SERVER --delete --topic "crayfish.*" --if-exists
+  echo "Done!"
 elif [[ $EXECUTION_MODE == 'c' ]]; then
-  KAFKA_CONFIG="${CRAYFISH_HOME}/experiments-driver/scripts/config.properties"
-  SH_TOPIC="${KAFKA_HOME}/bin/kafka-topics.sh --bootstrap-server $BOOTSTRAP_SERVER --command-config $KAFKA_CONFIG"
+  kafka-topics.sh --bootstrap-server $BOOSTRAP_SERVER --delete --topic "$IN_TOPIC.*" --command-config ./experiments-driver/scripts/config.properties --if-exists
+  kafka-topics.sh --bootstrap-server $BOOSTRAP_SERVER --delete --topic "$OUT_TOPIC.*" --command-config ./experiments-driver/scripts/config.properties --if-exists
+  kafka-topics.sh --bootstrap-server $BOOSTRAP_SERVER --delete --topic "crayfish.*" --command-config ./experiments-driver/scripts/config.properties --if-exists
 fi
-
-echo "Deleting kafka crayfish topics..."
-/bin/bash -c "$SH_TOPIC --delete --topic \"$IN_TOPIC.*\""
-/bin/bash -c "$SH_TOPIC --delete --topic \"$OUT_TOPIC.*\""
-/bin/bash -c "$SH_TOPIC --delete --topic \"$crayfish.*\""
-echo "Done!"

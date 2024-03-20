@@ -4,10 +4,6 @@ services:
     image: confluentinc/cp-zookeeper:latest
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
-    networks:
-      internal:
-        aliases:
-          - zookeeper
     ports:
       - 22181:2181
 
@@ -15,132 +11,13 @@ services:
     image: confluentinc/cp-kafka:latest
     depends_on:
       - zookeeper
-    networks:
-      internal:
-        aliases:
-          - kafka
     ports:
       - 29092:29092
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092 # access from kafka:9092 within the docker network
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_MESSAGE_MAX_BYTES: 2147483647
-
-  input-producer:
-    build:
-      context: .
-      dockerfile: docker/input-producer/Dockerfile
-    image: crayfish-input-producer
-    container_name: 'crayfish-input-producer'
-    working_dir: /home/user/crayfish
-    networks:
-      internal:
-        aliases:
-          - input-producer
-    ports:
-      - 8002:8002
-    volumes:
-      - ./logs:/home/user/crayfish/logs
-
-  data-processor:
-    build:
-      context: .
-      dockerfile: docker/data-processor/Dockerfile
-    image: crayfish-data-processor
-    container_name: 'crayfish-data-processor'
-    working_dir: /home/user/crayfish
-    networks:
-      internal:
-        aliases:
-          - data-processor
-    ports:
-      - 8003:8003
-    volumes:
-      - ./logs:/home/user/crayfish/logs
-
-  output-consumer:
-    build:
-      context: .
-      dockerfile: docker/output-consumer/Dockerfile
-    image: crayfish-output-consumer
-    container_name: 'crayfish-output-consumer'
-    working_dir: /home/user/crayfish
-    networks:
-      internal:
-        aliases:
-          - output-consumer
-    extra_hosts:
-      - "host.docker.internal:host-gateway" # to be able to connect to docker host and send data to exposed ports
-    volumes:
-      - ./logs:/home/user/crayfish/logs
-      - ./results:/home/user/crayfish/results
-  
-  external-serving-agent:
-    build:
-      context: .
-      dockerfile: docker/external-serving-agent/Dockerfile
-    image: crayfish-external-serving-agent
-    container_name: 'crayfish-external-serving-agent'
-    working_dir: /home/user/crayfish-dev
-    networks:
-      internal:
-        aliases:
-          - external-serving-agent
-    ports:
-      - 8004:8004
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./logs:/home/user/crayfish-dev/logs
-
-  torch-serving:
-    build:
-      context: .
-      dockerfile: docker/torch-serving/Dockerfile
-    image: crayfish-torch-serving
-    container_name: 'crayfish-torch-serving'
-    networks:
-      internal:
-        aliases:
-          - torch-serving
-    ports:
-      - '8080:8080'
-      - '8081:8081'
-      - '8082:8082'
-      - '7070:7070'
-      - '7071:7071'
-
-  tf-serving:
-    build:
-      context: .
-      dockerfile: docker/tf-serving/Dockerfile
-    image: crayfish-tf-serving
-    container_name: 'crayfish-tf-serving'
-    networks:
-      internal:
-        aliases:
-          - tf-serving
-    ports:
-      - '8500:8500'
-      - '8501:8501'
-  
-  ray-serving:
-    build:
-      context: .
-      dockerfile: docker/ray-serving/Dockerfile
-    image: crayfish-ray-serving
-    container_name: 'crayfish-ray-serving'
-    networks:
-      internal:
-        aliases:
-          - ray-serving
-    ports:
-      - '8000:8000'
-
-
-networks:
-  internal:
-    driver: bridge

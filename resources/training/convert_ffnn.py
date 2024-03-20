@@ -1,21 +1,17 @@
 from pathlib import Path
 
 import torch
+import tensorflow as tf
 import torch.nn as nn
 import torch.nn.functional as F
+from tensorflow import keras
 from torch.utils.data import random_split
 from torch.utils.data.dataloader import DataLoader
 from torchvision.datasets import FashionMNIST
 from torchvision.transforms import ToTensor
 
-import tensorflow as tf
-from tensorflow import keras
-
-import os
-os.chdir(os.path.dirname(os.path.realpath(__file__)))
-
-TF_SERVING_PATH = "../external/tf-s/ffnn/models/ffnn/1/"
-TORCHSERVE_PATH = "../external/tor-s/ffnn/models/"
+TF_SERVING_PATH = "../external/ffnn/tf-s/models/ffnn/1/"
+TORCHSERVE_PATH = "../external/ffnn/tor-s/models/"
 DL4J_PATH = "../embedded/ffnn/dl4j/model-1/"
 ONNX_PATH = "../embedded/ffnn/onnx/model-1/"
 SAVEDMODEL_PATH = "../embedded/ffnn/tf-savedmodel/model-1/"

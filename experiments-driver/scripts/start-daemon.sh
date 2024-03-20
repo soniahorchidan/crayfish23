@@ -1,16 +1,21 @@
 #!/bin/bash
 
-function getValue {
-  JSON_STR=$1
-  JSON_KEY=$2
-  JSON_VALUE=$(echo "$JSON_STR" | python3 -c "import sys, json; print(json.load(sys.stdin)['$JSON_KEY'])")
-  echo $JSON_VALUE
+# NOTE: TO BE USED ONLY FOR THE DATA PROCESSOR AND KAFKA PRODUCER
+
+function getProperty {
+  PROP_FILE=$1
+  PROP_KEY=$2
+  PROP_VALUE=$(cat $PROP_FILE | grep "$PROP_KEY" | cut -d'=' -f2)
+  echo $PROP_VALUE
 }
+
+# cluster mode is default
+EXECUTION_MODE='l'
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
   case $1 in
-  # dp=data processor, kp=kafka producer, es-tor=external server torchserve, es-tfs=external server tf-serving
+  # dp=data processor, kp=kafka producer, es-tor=external server torchserve, es-tfs=external server tf-serving, es-rs=external ray serve
   -p | --process)
     PROCESS="$2"
     shift
@@ -21,11 +26,6 @@ while [[ $# -gt 0 ]]; do
     shift
     shift
     ;;
-  --port)
-    PORT="$2"
-    shift
-    shift
-    ;;
   -* | --*)
     echo "Unknown option $1"
     exit 1
@@ -33,156 +33,159 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ $EXECUTION_MODE == 'l' ]]; then
+  GLOBAL_CONFIGS='./experiments-driver/configs/global-configs-local.properties'
+  if [[ $STREAM_PROCESSOR == 'ray' ]]; then
+    GLOBAL_CONFIGS='../experiments-driver/configs/global-configs-cluster.properties'
+  fi
+elif [[ $EXECUTION_MODE == 'c' ]]; then
+  GLOBAL_CONFIGS='./experiments-driver/configs/global-configs-cluster.properties'
+  if [[ $STREAM_PROCESSOR == 'ray' ]]; then
+    GLOBAL_CONFIGS='../experiments-driver/configs/global-configs-cluster.properties'
+  fi
+else
+  echo "ERROR: Unknown execution mode. Exiting"
+  exit 1
+fi
+
+if [[ $PROCESS == 'dp' ]]; then
+  MR=$(getProperty $GLOBAL_CONFIGS "data.processing.endpoint")
+elif [[ $PROCESS == 'kp' ]]; then
+  MR=$(getProperty $GLOBAL_CONFIGS "kafka.input.producer.endpoint")
+elif [[ $PROCESS == 'es-tor' ]]; then
+  MR=$(getProperty $GLOBAL_CONFIGS "external.serving.endpoint.tor")
+elif [[ $PROCESS == 'es-tfs' ]]; then
+  MR=$(getProperty $GLOBAL_CONFIGS "external.serving.endpoint.tfs")
+elif [[ $PROCESS == 'es-rs' ]]; then
+  MR=$(getProperty $GLOBAL_CONFIGS "external.serving.endpoint.rayserve")
+fi
+ENDPOINT=$(echo "$MR" | tr ',' '\n')
+HOST=$(echo "$ENDPOINT" | cut -d ":" -f 1) # TODO: sanity check? (i.e., check if it is the same as in config file)
+PORT=$(echo "$ENDPOINT" | cut -d ":" -f 2)
+
 while true; do
   echo "Ready! Waiting for the main server (KC). Listening to port $PORT"
-  while ! EXP_ARGS=$(nc -l $PORT); do
+  START=true
+  while $START; do
+    #    EXP_ARGS=$(python3 ./experiments-driver/tools/netcat_server.py "$PORT")
+    EXP_ARGS=$(nc -l "$PORT")
+    if [[ "$EXP_ARGS" == *CRAYFISH* ]]; then
+      START=false
+      pattern="CRAYFISH"
+      EXP_ARGS=${EXP_ARGS/$pattern/}
+    fi
     sleep 0.1
   done
-  echo "Launching daemon ..."
-  echo "Message received: $EXP_ARGS"
+  echo "Launching daemon...Message received: $EXP_ARGS"
 
   if [[ $EXP_ARGS == 'EXIT' ]]; then
     echo "Experiments ended; exiting..."
     exit
   fi
 
-  # only used in start-daemon.sh
-  LOGS_DIR=$(getValue "$EXP_ARGS" 'logs-dir')
-  
-  # keep pass to java process
-  SP=$(getValue "$EXP_ARGS" 'sp')
-  MF=$(getValue "$EXP_ARGS" 'mf')
-  MN=$(getValue "$EXP_ARGS" 'mn')
-  MCONF=$(getValue "$EXP_ARGS" 'mconf')
-  KAFKA_INPUT_TOPIC=$(getValue "$EXP_ARGS" 'kafka-input-topic')
-  KAFKA_OUTPUT_TOPIC=$(getValue "$EXP_ARGS" 'kafka-output-topic')
-  EXP_BATCH_SIZE=$(getValue "$EXP_ARGS" 'exp-batch-size')
-  EXP_MODEL_REPLICAS=$(getValue "$EXP_ARGS" 'exp-model-replicas')
-  EXP_EXEC_ARGS=$(getValue "$EXP_ARGS" 'exp-exec-args')
-  GLO_EXEC_ARGS=$(getValue "$EXP_ARGS" 'glo-exec-args')
+  STREAM_PROCESSOR=$(echo $EXP_ARGS | python3 -c "import sys, json; print(json.load(sys.stdin)['sp'])")
+  MODEL_FORMAT=$(echo $EXP_ARGS | python3 -c "import sys, json; print(json.load(sys.stdin)['mf'])")
+  MODEL_NAME=$(echo $EXP_ARGS | python3 -c "import sys, json; print(json.load(sys.stdin)['mn'])")
+  EXP_CONFIGS=$(echo $EXP_ARGS | python3 -c "import sys, json; print(json.load(sys.stdin)['econfig'])")
+  MODEL_CONFIG=$(echo $EXP_ARGS | python3 -c "import sys, json; print(json.load(sys.stdin)['mconfig'])")
+  EXP_NUM_REC=$(echo $EXP_ARGS | python3 -c "import sys, json; print(json.load(sys.stdin)['er'])")
+  MAX_INPUT_RATE_PER_PRODUCER=$(echo $EXP_ARGS | python3 -c "import sys, json; print(json.load(sys.stdin)['mir'])")
+  KAFKA_INPUT_TOPIC=$(echo $EXP_ARGS | python3 -c "import sys, json; print(json.load(sys.stdin)['kafka-input-topic'])")
+  KAFKA_OUTPUT_TOPIC=$(echo $EXP_ARGS | python3 -c "import sys, json; print(json.load(sys.stdin)['kafka-output-topic'])")
+  RUN_TASK_PARALLEL=$(echo $EXP_ARGS | python3 -c "import sys, json; print(json.load(sys.stdin)['task-parallel'])")
 
-  EXEC_ARGS="-sp       $SP \
-             -mf       $MF \
-             -mn       $MN \
-             -mconf    $MCONF \
-             -in       $KAFKA_INPUT_TOPIC \
-             -out      $KAFKA_OUTPUT_TOPIC \
-             $EXP_EXEC_ARGS \
-             $GLO_EXEC_ARGS"
-  
-  # Start daemon
-  mkdir -p "$LOGS_DIR"
+  echo "Received $MAX_INPUT_RATE_PER_PRODUCER"
+
+  #  if [[ $EXECUTION_MODE == 'l' ]]; then
+  #    sed -i "s/kafka.input.data.topic=.*/kafka.input.data.topic=$KAFKA_INPUT_TOPIC/" ./experiments-driver/configs/global-configs-local.properties
+  #    sed -i "s/kafka.output.topic=.*/kafka.output.topic=$KAFKA_OUTPUT_TOPIC/" ./experiments-driver/configs/global-configs-local.properties
+  if [[ $EXECUTION_MODE == 'c' ]]; then
+    sed -i "s/kafka.input.data.topic=.*/kafka.input.data.topic=$KAFKA_INPUT_TOPIC/" ./experiments-driver/configs/global-configs-cluster.properties
+    sed -i "s/kafka.output.topic=.*/kafka.output.topic=$KAFKA_OUTPUT_TOPIC/" ./experiments-driver/configs/global-configs-cluster.properties
+  fi
+
+  LOGS_DIR="logs/$STREAM_PROCESSOR/$MODEL_FORMAT/$MODEL_NAME/$(date +%s)"
+  mkdir -p $LOGS_DIR
+
   if [[ $PROCESS == 'dp' ]]; then
-    echo "Starting data processor $SP process ..."
-    if [[ $SP == 'flink' ]]; then
-      $FLINK_HOME/bin/start-cluster.sh
-      nohup $FLINK_HOME/bin/flink run -c ExperimentDriver \
-        ./experiments-driver/target/experiments-driver-1.0-SNAPSHOT.jar $EXEC_ARGS >$LOGS_DIR/stream-processor.logs 2>&1 &
-    elif [[ $SP == 'kafkastreams' ]]; then
-      nohup mvn exec:java -pl experiments-driver -Dexec.mainClass="ExperimentDriver" -Drun.jvmArguments="-Xmx120g" \
-        -Dexec.cleanupDaemonThreads=false -Dexec.args="$EXEC_ARGS" >$LOGS_DIR/stream-processor.logs &
-    elif [[ $SP == 'sparkss' ]]; then
-      nohup $SPARK_HOME/bin/spark-submit --class ExperimentDriver --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.2 \
-        ./experiments-driver/target/experiments-driver-1.0-SNAPSHOT.jar $EXEC_ARGS >$LOGS_DIR/stream-processor.logs 2>&1 &
-    elif [[ $SP == 'ray' ]]; then
-      ray start --head
-      nohup python3 ./rayfish/main.py $EXEC_ARGS -intopic $KAFKA_INPUT_TOPIC >$LOGS_DIR/stream-processor.logs 2>&1 &
+    echo "Started data processor $STREAM_PROCESSOR process!"
+    if [[ $STREAM_PROCESSOR == 'flink' ]]; then
+      FLINK_PATH=$(getProperty $GLOBAL_CONFIGS "flink.bin.path")
+      $FLINK_PATH/bin/start-cluster.sh
+      nohup $FLINK_PATH/bin/flink run -c ExperimentDriver ./experiments-driver/target/experiments-driver-1.0-SNAPSHOT.jar \
+        -sp $STREAM_PROCESSOR -mf $MODEL_FORMAT -mconf $MODEL_CONFIG -gconf $GLOBAL_CONFIGS -econf $EXP_CONFIGS -task-par $RUN_TASK_PARALLEL >$LOGS_DIR/stream-processor.logs &
+    elif [[ $STREAM_PROCESSOR == 'kafkastreams' ]]; then
+      nohup mvn exec:java -pl experiments-driver -Dexec.mainClass="ExperimentDriver" -Drun.jvmArguments="-Xmx120g" -Dexec.cleanupDaemonThreads=false \
+        -Dexec.args="-sp $STREAM_PROCESSOR -mf $MODEL_FORMAT -mconf $MODEL_CONFIG -gconf $GLOBAL_CONFIGS -econf $EXP_CONFIGS" >$LOGS_DIR/stream-processor.logs &
+    elif [[ $STREAM_PROCESSOR == 'sparkss' ]]; then
+      SPARK_PATH=$(getProperty $GLOBAL_CONFIGS "spark.bin.path")
+      nohup $SPARK_PATH/bin/spark-submit --class ExperimentDriver --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.2 ./experiments-driver/target/experiments-driver-1.0-SNAPSHOT.jar \
+        -sp $STREAM_PROCESSOR -mf $MODEL_FORMAT -mconf $MODEL_CONFIG -gconf $GLOBAL_CONFIGS -econf $EXP_CONFIGS >$LOGS_DIR/stream-processor.logs &
+    elif [[ $STREAM_PROCESSOR == 'ray' ]]; then
+      echo "Started Ray Server!"
+      nohup ./experiments-driver/scripts/start-ray.sh
+      echo $GLOBAL_CONFIGS
+      nohup python3 ./rayfish/main.py -mf $MODEL_FORMAT -mn $MODEL_NAME -mconf $MODEL_CONFIG -gconf $GLOBAL_CONFIGS -econf $EXP_CONFIGS >$LOGS_DIR/stream-processor.logs &
     fi
 
   elif [[ $PROCESS == 'kp' ]]; then
-    echo "Started kafka producer process!"
+    echo "Started Kafka Producer process!"
     nohup mvn exec:java -pl input-producer -Dexec.mainClass="KafkaInputProducersRunner" -Dexec.cleanupDaemonThreads=false \
-      -Dexec.args="$EXEC_ARGS" >$LOGS_DIR/kafka-data-in.logs &
+      -Dexec.args="-mconf $MODEL_CONFIG -gconf $GLOBAL_CONFIGS -econf $EXP_CONFIGS -er $EXP_NUM_REC -mir $MAX_INPUT_RATE_PER_PRODUCER" >$LOGS_DIR/kafka-data-in.logs &
 
-  elif [[ $PROCESS == 'es' ]]; then
-    if [[ $MF == 'torchserve' ]]; then
-      echo "Starting Torchserve external server ..."
-      docker compose run -d --service-ports --use-aliases torch-serving \
-        torchserve --start --ncs --model-store model-store
-      sleep 10
+  elif [[ $PROCESS == 'es-tor' ]]; then
+    echo "Started TorchServe External Server!"
+    nohup ./experiments-driver/scripts/start-torchserve.sh -mn $MODEL_NAME -econf $EXP_CONFIGS >$LOGS_DIR/externalserver-torchserve.logs &
 
-      echo "Register the $MN torch model"
-      curl -v -X POST "http://torch-serving:8081/models?model_name=$MN&url=$MN.mar&initial_workers=1&batch_size=1&max_batch_delay=1000&reponse_timeout=120"
-      sleep 5
-      echo "Scale the number of workers used for serving to $EXP_MODEL_REPLICAS"
-      curl -v -X PUT "http://torch-serving:8081/models/$MN?min_worker=$EXP_MODEL_REPLICAS&max_worker=$EXP_MODEL_REPLICAS"
-      sleep 2
+  elif [[ $PROCESS == 'es-tfs' ]]; then
+    echo "Started TorchServe External Server!"
+    nohup ./experiments-driver/scripts/start-tf-serving.sh -mn $MODEL_NAME -econf $EXP_CONFIGS >$LOGS_DIR/externalserver-tf-serving.logs &
 
-      # Check model serving configuration
-      echo "Updated model serving configuration:"
-      curl "torch-serving:8081/models/$MN"
-
-    elif [[ $MF == 'tf-serving' ]]; then
-      if [[ $SP == 'ray' ]]; then
-        echo "Starting Ray serving external server ..."
-        RAY_CONTAINER_ID=$(docker compose run -d --service-ports --use-aliases ray-serving tail -f /dev/null)
-        docker exec $RAY_CONTAINER_ID /bin/bash -c \
-          "ray start --head"
-        docker exec $RAY_CONTAINER_ID /bin/bash -c \
-          "python3 ./rayfish/deploy_rayserve.py $EXEC_ARGS"
-
-      else
-        MODEL_DIR="$CRAYFISH_HOME/resources/external/tf-s/$MN/models"
-
-        # Setting batching.conf
-        echo "Scaling the number of parallel threads used for serving to $EXP_MODEL_REPLICAS ..."
-        sed -i "s/num_batch_threads { value: .* }/num_batch_threads { value: $EXP_MODEL_REPLICAS }/g" $MODEL_DIR/batching.config
-        echo "Setting batch size $EXP_BATCH_SIZE ..."
-        sed -i "s/max_batch_size { value: .* }/max_batch_size { value: $EXP_BATCH_SIZE }/g" $MODEL_DIR/batching.config
-        echo ""
-
-        # Start Tensorflow Model Serving
-        CONTAINER_MODEL_DIR="/models/$MN/models"
-
-        echo "Starting Tensorflow serving external server ..."
-        docker compose run -d --service-ports --use-aliases tf-serving \
-          --model_config_file=$CONTAINER_MODEL_DIR/models.config \
-          --model_config_file_poll_wait_seconds=60 \
-          --tensorflow_intra_op_parallelism=1 \
-          --tensorflow_inter_op_parallelism=1 \
-          --enable_batching=true \
-          --batching_parameters_file=$CONTAINER_MODEL_DIR/batching.config
-      fi
-    fi
+  elif [[ $PROCESS == 'es-rs' ]]; then
+    echo "Started RayServe External Server!"
+    nohup ./experiments-driver/scripts/start-rayserve.sh -mf $MODEL_FORMAT -econf $EXP_CONFIGS -mconf $MODEL_CONFIG >$LOGS_DIR/externalserver-rayserve.logs &
   fi
 
-  echo "Waiting for exit signal from the main server (KC). Listening to port $PORT ..."
-  while ! nc -l $PORT; do
+  echo "Waiting for exit signal from the main server (KC). Listening to port $PORT"
+
+  START=true
+  while $START; do
+    #    EXP_ARGS=$(python3 ./experiments-driver/tools/netcat_server.py "$PORT")
+    EXP_ARGS=$(nc -l $PORT)
+    if [[ "$EXP_ARGS" == *CRAYFISH* ]]; then
+      START=false
+      pattern="CRAYFISH"
+      EXP_ARGS=${EXP_ARGS/$pattern/}
+    fi
     sleep 0.1
   done
 
-  echo "Cleaning up all the processes spawned ..."
-  # stop flink
-  if [[ $SP == 'flink' && $PROCESS == 'dp' ]]; then
-    $FLINK_HOME/bin/stop-cluster.sh
+  echo "Cleaning up all the processes spawned."
+  # stop the Flink cluster
+  if [[ $STREAM_PROCESSOR == 'flink' && $PROCESS == 'dp' ]]; then
+    "$FLINK_PATH"/bin/stop-cluster.sh
   fi
 
-  # stop ray
-  if [[ $SP == 'ray' && $PROCESS == 'dp' ]]; then
-    ray stop
+  # stop the ray server
+  if [[ $STREAM_PROCESSOR == 'ray' && $PROCESS == 'dp' ]]; then
+    ./experiments-driver/scripts/stop-ray.sh
   fi
 
-  # clean up sparkss
+  # Clean up Spark SS
   if [[ $STREAM_PROCESSOR == 'sparkss' && $PROCESS == 'dp' ]]; then
     rm -r /tmp/checkpoint
+  fi
+
+  # stop external server, if started
+  if [[ $PROCESS == 'es-tor' ]]; then
+    ./experiments-driver/scripts/stop-torchserve.sh
+  elif [[ $PROCESS == 'es-tfs' ]]; then
+    ./experiments-driver/scripts/stop-tf-serving.sh
+  elif [[ $PROCESS == 'es-rs' ]]; then
+    ./experiments-driver/scripts/stop-rayserve.sh
   fi
 
   # kill all other processes
   pkill -P $$
 
-  # stop external server, if started
-  if [[ $PROCESS == 'es' ]]; then
-    if [[ $MF == 'torchserve' ]]; then
-      if [[ $SP == 'ray' ]]; then
-        echo "Stopping Rayserve external server ..."
-        docker compose down ray-serving 
-      else
-        echo "Stopping Torchserve external server ..."
-        docker compose down torch-serving
-      fi
-    elif [[ $MF == 'tf-serving' ]]; then
-      echo "Stopping Tensorflow external server ..."
-      docker compose down tf-serving
-    fi
-  fi
 done

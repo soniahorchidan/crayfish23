@@ -1,5 +1,6 @@
 import datatypes.datapoints.CrayfishDataBatch;
 import datatypes.models.CrayfishModel;
+import org.apache.commons.configuration2.ex.ConfigurationException;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.RichMapFunction;
 import org.apache.flink.api.common.serialization.SerializationSchema;
@@ -22,7 +23,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import serde.data.CrayfishDataBatchSerde;
 import utils.CrayfishUtils;
-import config.CrayfishConfig;
 
 import java.io.IOException;
 import java.io.Serializable;
@@ -37,9 +37,16 @@ public class FlinkCrayfishAdapter<M extends CrayfishModel> extends
     private final int asyncOperatorTimeout;
     private final int asyncOperatorCapacity;
 
-    public FlinkCrayfishAdapter(Class<M> modelClass, CrayfishConfig config) {
-        super(modelClass, config, false);
-        asyncOperatorCapacity = config.getInt("ac");
+    public FlinkCrayfishAdapter(Class<M> modelClass, String modelName, String modelEndpoint, String globalConfigPath,
+                                String experimentConfigPath, boolean isExternal, boolean isTaskParallel) throws ConfigurationException {
+        super(modelClass, modelName, modelEndpoint, globalConfigPath, experimentConfigPath, isExternal, isTaskParallel);
+        org.apache.commons.configuration2.Configuration experimentConfig = CrayfishUtils.readConfiguration(
+                experimentConfigPath);
+        if (experimentConfig.containsKey("async_op_capacity")) {
+            asyncOperatorCapacity = experimentConfig.getInt("async_op_capacity");
+        } else {
+            asyncOperatorCapacity = 500000;
+        }
         asyncOperatorTimeout = 500000;
     }
 
@@ -58,7 +65,7 @@ public class FlinkCrayfishAdapter<M extends CrayfishModel> extends
                                                            .setStartingOffsets(OffsetsInitializer.earliest())
                                                            .setDeserializer(new CrayfishDataPointDeserializer())
                                                            .build();
-        return streamBuilder.fromSource(source, WatermarkStrategy.noWatermarks(), "Source").disableChaining();
+        return streamBuilder.fromSource(source, WatermarkStrategy.noWatermarks(), "Source");
     }
 
     @Override
@@ -77,7 +84,7 @@ public class FlinkCrayfishAdapter<M extends CrayfishModel> extends
             public CrayfishDataBatch map(CrayfishDataBatch crayfishDataBatch) throws Exception {
                 return applyModel(model, crayfishDataBatch);
             }
-        }).disableChaining();
+        });
     }
 
     @Override
@@ -98,7 +105,7 @@ public class FlinkCrayfishAdapter<M extends CrayfishModel> extends
                 CrayfishDataBatch result = applyModel(model, crayfishDataBatch);
                 resultFuture.complete(Collections.singleton(result));
             }
-        }, asyncOperatorTimeout, TimeUnit.MILLISECONDS, asyncOperatorCapacity).disableChaining();
+        }, asyncOperatorTimeout, TimeUnit.MILLISECONDS, asyncOperatorCapacity);
     }
 
     public CrayfishUtils.Either<SingleOutputStreamOperator<CrayfishDataBatch>, DataStreamSink<CrayfishDataBatch>> outputOp(
@@ -135,7 +142,7 @@ public class FlinkCrayfishAdapter<M extends CrayfishModel> extends
             CrayfishUtils.Either<SingleOutputStreamOperator<CrayfishDataBatch>, DataStreamSink<CrayfishDataBatch>> operator,
             int parallelism) throws Exception {
         SingleOutputStreamOperator<CrayfishDataBatch> op = operator.leftOrElse(null);
-        if (op != null) return new CrayfishUtils.Either.Left<>(op.setParallelism(parallelism));
+        if (op != null) return new CrayfishUtils.Either.Left<>(op.setParallelism(parallelism).disableChaining());
         DataStreamSink<CrayfishDataBatch> op2 = operator.rightOrElse(null);
         if (op2 != null) return new CrayfishUtils.Either.Right<>(op2.setParallelism(parallelism));
         return null;
@@ -144,7 +151,7 @@ public class FlinkCrayfishAdapter<M extends CrayfishModel> extends
     @Override
     public void setDefaultParallelism(StreamExecutionEnvironment streamExecutionEnvironment, Properties metaData,
                                       int parallelism) throws Exception {
-        streamExecutionEnvironment.setParallelism(parallelism);
+        streamExecutionEnvironment.getConfig().setParallelism(parallelism);
     }
 
     @Override

@@ -1,9 +1,8 @@
 import datatypes.datapoints.CrayfishDataBatch;
 import datatypes.datapoints.CrayfishPrediction;
 import datatypes.models.CrayfishModel;
-import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.commons.configuration2.ex.ConfigurationException;
 import utils.CrayfishUtils;
-import config.CrayfishConfig;
 
 import java.io.Serializable;
 import java.util.Properties;
@@ -15,53 +14,55 @@ import java.util.Properties;
  * @param <M>  Model Type
  */
 public abstract class Crayfish<SB, OP, SK, M extends CrayfishModel> implements Serializable {
-    protected Class<M> mClass;
-    protected CrayfishConfig config;
-    private final boolean isExternal;
     protected String bootstrapServer;
     protected String inputDataTopic;
     protected String outputTopic;
+    protected String modelEndpoint;
+    protected String modelName;
+    protected int parallelism;
+    protected int kafkaPartitionsNum;
     protected String kafkaAuthUsername;
     protected String kafkaAuthPassword;
-    protected int kafkaPartitionsNum;
     protected int kafkaMaxRequestSize;
-    protected int parallelism;
-    protected String modelName;
-    protected String modelEndpoint;
+    protected Class<M> mClass;
 
-    public Crayfish(Class<M> modelClass, String modelName, String modelEndpoint,
-                    CrayfishConfig config, boolean isExternal) {
+    private final boolean isExternal;
+    protected boolean isTaskParallel = false;
+
+    public Crayfish(Class<M> modelClass, String modelName, String modelEndpoint, String globalConfigPath,
+                    String experimentConfigPath, boolean isExternal) throws ConfigurationException {
         this.mClass = modelClass;
-        this.config = config;
-        this.isExternal = isExternal;
 
         // Kafka configs
-        bootstrapServer = config.getString("ce");
-        inputDataTopic = config.getString("in");
-        outputTopic = config.getString("out");
-        if (config.hasOption("user") && config.hasOption("pswd")) {
-            kafkaAuthUsername = config.getString("user");
-            kafkaAuthPassword = config.getString("pswd");
+        org.apache.commons.configuration2.Configuration globalConfig = CrayfishUtils.readConfiguration(
+                globalConfigPath);
+        bootstrapServer = globalConfig.getString("kafka.bootstrap.servers");
+        inputDataTopic = globalConfig.getString("kafka.input.data.topic");
+        outputTopic = globalConfig.getString("kafka.output.topic");
+        if (globalConfig.containsKey("kafka.auth.username") && globalConfig.containsKey("kafka.auth.password")) {
+            kafkaAuthUsername = globalConfig.getString("kafka.auth.username");
+            kafkaAuthPassword = globalConfig.getString("kafka.auth.password");
         } else {
             kafkaAuthUsername = "";
             kafkaAuthPassword = "";
         }
-        kafkaPartitionsNum = config.getInt("ip");
-        kafkaMaxRequestSize = config.getInt("rs");
+        kafkaMaxRequestSize = globalConfig.getInt("kafka.max.req.size");
+        kafkaPartitionsNum = globalConfig.getInt("kafka.input.data.partitions.num");
 
         // experiment configs
-        parallelism = config.getInt("mr");
-        this.modelName = modelName;
         this.modelEndpoint = modelEndpoint;
-
-        // debug
-        System.out.println("Input topic: " + inputDataTopic);
-        System.out.println("Output topic: " + outputTopic);
-        System.out.println("Bootstrap Server: " + bootstrapServer);
+        this.modelName = modelName;
+        org.apache.commons.configuration2.Configuration experimentConfig = CrayfishUtils.readConfiguration(
+                experimentConfigPath);
+        parallelism = experimentConfig.getInt("model_replicas");
+        this.isExternal = isExternal;
     }
 
-    public Crayfish(Class<M> modelClass, CrayfishConfig config, boolean isExternal) {
-        this(modelClass, config.getModelName(), config.getModelEndpoint(), config, isExternal);
+    public Crayfish(Class<M> modelClass, String modelName, String modelEndpoint, String globalConfigPath,
+                    String experimentConfigPath, boolean isExternal, boolean isTaskParallel) throws
+                                                                                             ConfigurationException {
+        this(modelClass, modelName, modelEndpoint, globalConfigPath, experimentConfigPath, isExternal);
+        this.isTaskParallel = isTaskParallel;
     }
 
     public abstract SB streamBuilder();
@@ -85,31 +86,6 @@ public abstract class Crayfish<SB, OP, SK, M extends CrayfishModel> implements S
 
     public abstract Properties addMetadata() throws Exception;
 
-    public void run() throws Exception {
-        // build DAG
-        Properties metaData = addMetadata();
-
-        SB sb = streamBuilder();
-        OP input = inputOp(sb);
-        OP scoring = null;
-        if (isExternal) {
-            scoring = externalScoringOp(sb, input);
-        } else {
-            scoring = embeddedScoringOp(sb, input);
-        }
-        CrayfishUtils.Either<OP, SK> output = outputOp(sb, scoring);
-
-        // set parallelisms
-        if (hasOperatorParallelism()) {
-            setOperatorParallelism(new CrayfishUtils.Either.Left<>(input), kafkaPartitionsNum);
-            setOperatorParallelism(new CrayfishUtils.Either.Left<>(scoring), parallelism);
-            setOperatorParallelism(output, kafkaPartitionsNum);
-        } else {
-            setDefaultParallelism(sb, metaData, parallelism);
-        }
-        start(sb, metaData, output);
-    }
-
     public Properties getKafkaConsumerProps() {
         Properties properties = new Properties();
         setDefaultKafkaProps(properties);
@@ -121,12 +97,12 @@ public abstract class Crayfish<SB, OP, SK, M extends CrayfishModel> implements S
     public Properties getKafkaProducerProps() {
         Properties properties = new Properties();
         setDefaultKafkaProps(properties);
-        properties.put(ProducerConfig.MAX_REQUEST_SIZE_CONFIG, kafkaMaxRequestSize);
+        properties.put("max.request.size", kafkaMaxRequestSize);
         return properties;
     }
 
     public CrayfishModel loadModel() throws Exception {
-        CrayfishModel model = mClass.getDeclaredConstructor().newInstance();
+        CrayfishModel model = mClass.newInstance();
         model.loadModel(modelName, modelEndpoint);
         model.build();
         return model;
@@ -150,4 +126,25 @@ public abstract class Crayfish<SB, OP, SK, M extends CrayfishModel> implements S
         }
     }
 
+    public void run() throws Exception {
+        Properties metaData = addMetadata();
+
+        SB sb = streamBuilder();
+        if (!hasOperatorParallelism() || !isTaskParallel) setDefaultParallelism(sb, metaData, parallelism);
+
+        OP input = inputOp(sb);
+        CrayfishUtils.Either<OP, SK> in = new CrayfishUtils.Either.Left<>(input);
+        if (hasOperatorParallelism() && isTaskParallel) in = setOperatorParallelism(in, kafkaPartitionsNum);
+
+        OP scoring;
+        if (isExternal) scoring = externalScoringOp(sb, in.leftOrElse(null));
+        else scoring = embeddedScoringOp(sb, in.leftOrElse(null));
+        CrayfishUtils.Either<OP, SK> sc = new CrayfishUtils.Either.Left<>(scoring);
+        if (hasOperatorParallelism() && isTaskParallel) sc = setOperatorParallelism(sc, parallelism);
+
+        CrayfishUtils.Either<OP, SK> output = outputOp(sb, sc.leftOrElse(null));
+        if (hasOperatorParallelism() && isTaskParallel) output = setOperatorParallelism(output, kafkaPartitionsNum);
+
+        start(sb, metaData, output);
+    }
 }

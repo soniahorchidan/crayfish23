@@ -1,6 +1,6 @@
 import datatypes.datapoints.CrayfishDataBatch;
-import datatypes.datapoints.CrayfishPrediction;
 import datatypes.models.CrayfishModel;
+import org.apache.commons.configuration2.ex.ConfigurationException;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.Deserializer;
 import org.apache.kafka.common.serialization.Serde;
@@ -22,7 +22,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import serde.data.CrayfishDataBatchSerde;
 import utils.CrayfishUtils;
-import config.CrayfishConfig;
 
 import java.io.IOException;
 import java.io.Serializable;
@@ -35,8 +34,12 @@ public class KafkaStreamsCrayfishAdapter<M extends CrayfishModel>
     private static final Logger logger = LogManager.getLogger(KafkaStreamsCrayfishAdapter.class);
     private final StoreBuilder<KeyValueStore<String, CrayfishDataBatch>> crayfishStateStore;
 
-    public KafkaStreamsCrayfishAdapter(Class<M> modelClass, CrayfishConfig config) {
-        super(modelClass, config, false);
+    public KafkaStreamsCrayfishAdapter(Class<M> modelClass, String modelName, String modelEndpoint,
+                                       String globalConfigPath, String experimentConfigPath, boolean isExternal) throws
+                                                                                                                 ConfigurationException {
+        super(modelClass, modelName, modelEndpoint, globalConfigPath, experimentConfigPath, isExternal);
+        org.apache.commons.configuration2.Configuration globalConfig = CrayfishUtils.readConfiguration(
+                globalConfigPath);
 
         this.crayfishStateStore = Stores
                 .keyValueStoreBuilder(Stores.persistentKeyValueStore("CrayfishStateStore"), Serdes.String(),

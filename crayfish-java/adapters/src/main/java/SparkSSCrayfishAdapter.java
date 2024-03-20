@@ -1,6 +1,6 @@
-import config.CrayfishConfig;
 import datatypes.datapoints.CrayfishDataBatch;
 import datatypes.models.CrayfishModel;
+import org.apache.commons.configuration2.ex.ConfigurationException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.spark.SparkConf;
@@ -13,6 +13,7 @@ import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.streaming.DataStreamReader;
 import org.apache.spark.sql.streaming.DataStreamWriter;
 import serde.data.CrayfishDataBatchSerde;
+import org.apache.spark.sql.streaming.Trigger;
 import utils.CrayfishUtils;
 
 import java.io.Serializable;
@@ -22,19 +23,19 @@ public class SparkSSCrayfishAdapter<M extends CrayfishModel>
         extends Crayfish<SparkSession, Dataset<CrayfishDataBatch>, DataStreamWriter<Row>, M> implements Serializable {
     private static final Logger logger = LogManager.getLogger(SparkSSCrayfishAdapter.class);
 
-    public SparkSSCrayfishAdapter(Class<M> modelClass, CrayfishConfig config) {
-        super(modelClass, config, false);
+    public SparkSSCrayfishAdapter(Class<M> modelClass, String modelName, String modelEndpoint, String globalConfigPath,
+                                  String experimentConfigPath, boolean isExternal) throws ConfigurationException {
+        super(modelClass, modelName, modelEndpoint, globalConfigPath, experimentConfigPath, isExternal);
     }
 
     @Override
     public SparkSession streamBuilder() {
+        // TODO: config files!
         SparkConf sparkConf = new SparkConf().setAppName("SparkSSCrayfishAdapter")
                                              .set("spark.sql.streaming.checkpointLocation", "/tmp/checkpoint")
                                              .set("spark.streaming.receiver.writeAheadLog.enable", "false")
                                              .set("spark.sql.shuffle.partitions", String.valueOf(parallelism))
-                                             .set("spark.default.parallelism", String.valueOf(parallelism))
-                                             .set("spark.sql.streaming.schemaInference.batchSize",
-                                                  String.valueOf(parallelism));
+                                             .set("spark.default.parallelism", String.valueOf(parallelism));
         SparkSession spark = SparkSession.builder().config(sparkConf).getOrCreate();
         spark.sparkContext().setLogLevel("ERROR");
         return spark;
@@ -47,13 +48,14 @@ public class SparkSSCrayfishAdapter<M extends CrayfishModel>
                                                .option("kafka.bootstrap.servers", bootstrapServer)
                                                .option("subscribe", inputDataTopic)
                                                .option("startingOffsets", "earliest").option("failOnDataLoss", "false");
+        Properties props = getKafkaConsumerProps();
+        reader.option("kafka.fetch.message.max.bytes", 52428800)
+              .option("kafka.max.partition.fetch.bytes", 52428800);
         if (!kafkaAuthUsername.isEmpty() & !kafkaAuthPassword.isEmpty()) {
-            Properties props = getKafkaConsumerProps();
             reader.option("kafka.sasl.jaas.config", props.getProperty("sasl.jaas.config"))
                   .option("kafka.sasl.mechanism", props.getProperty("sasl.mechanism"))
-                  .option("kafka.security.protocol", props.getProperty("security.protocol"))
-                  .option("kafka.fetch.message.max.bytes", props.getProperty("fetch.message.max.bytes"))
-                  .option("kafka.max.partition.fetch.bytes", props.getProperty("max.partition.fetch.bytes"));
+                  .option("kafka.security.protocol", props.getProperty("security.protocol"));
+
         }
 
         Dataset<Row> kafkaSource = reader.load();
@@ -99,17 +101,19 @@ public class SparkSSCrayfishAdapter<M extends CrayfishModel>
             return serde.serialize(crayfishDataBatch);
         }, Encoders.BINARY()).toDF();
 
-        DataStreamWriter<Row> writer = jsonOutput.writeStream().format("kafka")
+        DataStreamWriter<Row> writer = jsonOutput.writeStream().format("kafka").trigger(Trigger.ProcessingTime("1 millisecond"))
                                                  .option("kafka.bootstrap.servers", bootstrapServer)
                                                  .option("topic", outputTopic).option("failOnDataLoss", "false");
 
+        Properties props = getKafkaProducerProps();
+        writer.option("kafka.max.request.size", 52428800);
+
         if (!kafkaAuthUsername.isEmpty() & !kafkaAuthPassword.isEmpty()) {
-            Properties props = getKafkaProducerProps();
             writer.option("kafka.sasl.jaas.config", props.getProperty("sasl.jaas.config"))
                   .option("kafka.sasl.mechanism", props.getProperty("sasl.mechanism"))
-                  .option("kafka.security.protocol", props.getProperty("security.protocol"))
-                  .option("kafka.max.request.size", props.getProperty("max.request.size"));
+                  .option("kafka.security.protocol", props.getProperty("security.protocol"));
         }
+
         return new CrayfishUtils.Either.Right<>(writer);
     }
 
@@ -134,6 +138,9 @@ public class SparkSSCrayfishAdapter<M extends CrayfishModel>
     @Override
     public void setDefaultParallelism(SparkSession sparkSession, Properties metaData, int parallelism) throws
                                                                                                        Exception {
+        //sparkSession.conf().set("spark.default.parallelism", parallelism);
+        //sparkSession.conf().set("spark.cores.max", parallelism);
+        //sparkSession.conf().set("spark.sql.shuffle.partitions", 1);
     }
 
     @Override

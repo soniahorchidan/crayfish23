@@ -1,19 +1,19 @@
-# Crayfish: Navigating the Labyrinth of Machine Learning Inference in Stream Processing Systems
+# Crayfish: Benchmarking Model Serving in Data Streaming
 
 ## Project Structure
 
 ```
 .
-├── core                  # Crayfish Java core components and abstractions.
-├── crayfish-java         # Crayfish adapters (i.e., FLink, Spark Structured Streaming, Kafka Streams).
-├── docker                # Scripts and configuration for Docker deployment.
-├── experiments-driver    # Experiments testbed and configurations.
-├── input-producer        # Input Producer Component. Contains a random input generator.
-├── output-consumer       # Output Consumer Component. Writes latency measurements to persistent storage.
-├── rayfish               # Crayfish Ray Adapter.
-├── resources             # Pre-trained models and training scripts.  
-└── results-analysis      # Notebooks to analyze the results.
+|-- core                   # Crayfish Java core components and abstractions.
+|-- crayfish-java          # Crayfish adapters (i.e., FLink, Spark Structured Streaming, Kafka Streams).
+|-- experiments-driver     # Experiments testbed and configurations.
+|-- input-producer         # Input Producer Component. Contains a random input generator .      
+|-- output-consumer        # Output Consumer Component. Writes latency measurements to persistent storage.   
+|-- rayfish                # Crayfish Ray Adapter.   
+|-- resources              # Pre-trained models and training scripts.  
+`-- results-analysis       # Notebooks to analyze the results.
 ```
+
 
 ## Supported Tools
 
@@ -85,9 +85,12 @@
 - TorchServe 0.7.1
 - TensorFlow Serving 2.11.1
 
+
 ## Quick Start
 
-### Environment
+### Prerequisites
+
+#### Environment
 
 1. Unix-like environment
 2. Python 3
@@ -95,32 +98,54 @@
 4. Java 8
 5. Docker installation
 
+#### Configuration
 
-### Experiments
-We offer an option to test the tools locally before deploying to a cluster. 
+Before running the experiments, the models must be located under `resources/`. To train the models and save them in the
+required formats, run `resources/training/convert_ffnn.py` for the FFNN model
+and  `resources/training/convert_resnet50.py` for the ResNet50 model.
 
-```bash
-# train ffnn/resnet50 models in different model formats
-./resources/train-models.sh
+Crayfish provides two execution modes: _local_, to test the experiments on a single node, and _cluster_, to deploy the
+Crayfish components on a cluster of machines. For each deployment, the configuration
+files `experiments-driver/configs/global-configs-local.properties`
+and `experiments-driver/configs/global-configs-cluster.properties` must be updated respectively.
 
-# build images with the trained models
-./docker/docker-build.sh
+**NOTE!** Do not forget to update the property files above to point to the local Apache Flink and Spark Structured Streaming 
+installations.
 
-# run all experiments locally (to run a single experiment, see the options below)
-./run.sh -e a -ec s -sp a -m a -msm a -msx a -em l
+### Quick start
 
-# clean all the running and exited containers and created volumes if you quit before the experiment finishes
-./docker/docker-stop.sh
+#### Building and packaging
 
-# clean log, results, and models trained by ./resources/train-models.sh
-./clean-exp-files.sh
+The first step in executing the experiments is to compile and package the project. To do so, run the following command
+in  the Crayfish home directory.
 ```
+mvn clean install
+``` 
+
+#### Preparing the Docker images
+
+**NOTE!** Make sure Docker is running before.
+
+Make sure to download the needed Docker images:
+
+```
+docker pull confluentinc/cp-zookeeper:latest
+docker pull confluentinc/cp-kafka:latest
+docker pull tensorflow/serving:latest
+``` 
+
+#### Experiments
+
+The main entry-point for the experiments is the `run.sh` script which can be found inside the `experiments-driver`
+directory.
 
 `run.sh` has the following options:
+
 ```
 Arguments:
                                        [!] NOTE: Configs in 'experiments-driver/configs/exp-configs/[-ec]/[-e]' will be run.
--e     | --experiments                 Independent variable sets to run: a=all, i=input rate, b=batch size, s=scalability, r=bursty rate.
+-e     | --experiments                 Independent variable sets to run: a=all, i=input rate, b=batch size, s=scalability, 
+                                       r=bursty rate.
 -ec    | --experiments-control         Controlled variable sets to run: s=small, l=large, d=debug.
                                          - small: Run input rate 256 for the scalability experiment.
                                            [!] NOTE: ResNet50 is recommended for this option due to the large
@@ -129,81 +154,54 @@ Arguments:
                                          - debug: Run simple experiment configs in the debug folder.
 -sp    | --stream-processors           Stream processor to test:
                                          a=all, f=Apache Flink, k=Kafka Streams, s=Spark Streaming, r=Ray.
--m     | --models                      Served models: a=all, f=ffnn, r=resnet50.
+-m     | --models                      Served models: a=all, f=ffnn, r=resnet50, v=vgg19.
 -msm   | --embedded-model-servers      Embedded model serving alternative:
                                          x=none, a=all (w/o noop and nd4j), n=nd4j, d=dl4j, o=onnx, t=tf-savedmodel, k=noop.
                                          [!] NOTE: noop will execute input rate and batch size experiments.
 -msx   | --external-model-servers      External model serving alternative: x=none, a=all, t=tf-serving, s=torchserve.
+-pm    | --parallelism-model           Valid only for Flink. Parallelism model alternative d=data parallel, t=task parallel."
 -em    | --execution-mode              Execution mode: l=local, c=cluster.
 -d     | --default-configs             Print default configs.
 -h     | --help                        Help.
 ```
 
-### Run on Cluster
-To adapt the experiments to be executed on the cluster,
+Depending on the experiment required to be executed, the script can be used as follows:
 
-1. Build the required docker images on different VMs and train models (commands are from `./docker/docker-build.sh`)
-    1. Kafka consumer VM
-        ```
-        docker compose build output-consumer --build-arg USER_ID=$(id -u) --build-arg GROUP_ID=$(id -g)
-        ```
-    1. Data processor
-        ```
-        ./resources/train-models.sh
-        docker compose build data-processor --build-arg USER_ID=$(id -u) --build-arg GROUP_ID=$(id -g) 
-        ```
-    1. Kafka producer VM
-        ```
-        docker compose build input-producer --build-arg USER_ID=$(id -u) --build-arg GROUP_ID=$(id -g)
-        ```
-    1. External serving VM
-        ```
-        ./resources/train-models.sh
-        docker compose build external-serving-agent --build-arg USER_ID=$(id -u) --build-arg GROUP_ID=$(id -g)
-        docker compose build torch-serving
-        docker compose build tf-serving
-        docker compose build ray-serving
-        ```
-1. Open the respective docker container on different VMs manually. The order matters. (commands are from `./run.sh`)
-    1. Kafka producer VM
-        ```
-        docker compose run -d --service-ports --use-aliases -u $(id -u):$(id -g) input-producer \
-            /bin/bash -c "./experiments-driver/scripts/start-daemon.sh -p kp -em 'l' --port $PORT_KP >logs/$EXP_UNIQUE_ID-kp-daemon-logs.txt 2>&1" 
-        ```
-    1. Data processor
-        ```
-        docker compose run -d --service-ports --use-aliases -u $(id -u):$(id -g) data-processor \
-            /bin/bash -c "./experiments-driver/scripts/start-daemon.sh -p dp -em 'l' --port $PORT_DP >logs/$EXP_UNIQUE_ID-dpd-daemon-logs.txt 2>&1"
-        ```
-    1. External serving VM
-        ```
-        docker compose run -u $(id -u):$(id -g) output-consumer \
-            /bin/bash -c "./experiments-driver/scripts/start-consumer.sh \
-            -e $EXPERIMENTS_OPT \
-            -ec $EXPERIMENTS_CTRL_OPT \
-            -sp $STREAM_PROCESSOR_OPT \
-            -m $MODELS_OPT \
-            -msm $EMBEDDED_MODEL_SERVERS_OPT \
-            -msx $EXTERNAL_MODEL_SERVERS_OPT \
-            -em $EXECUTION_MODE_OPT \
-            -eid $EXP_UNIQUE_ID"
-        ```
-    1. Kafka consumer VM
-        ```
-        docker compose run -u $(id -u):$(id -g) output-consumer \
-            /bin/bash -c "./experiments-driver/scripts/start-consumer.sh \
-            -e $EXPERIMENTS_OPT \
-            -ec $EXPERIMENTS_CTRL_OPT \
-            -sp $STREAM_PROCESSOR_OPT \
-            -m $MODELS_OPT \
-            -msm $EMBEDDED_MODEL_SERVERS_OPT \
-            -msx $EXTERNAL_MODEL_SERVERS_OPT \
-            -em $EXECUTION_MODE_OPT \
-            -eid $EXP_UNIQUE_ID"
-        ```
-1. Update the IP addresses for each VM in `experiments-driver/configs/global-configs-cluster.properties`
+```bash
+./experiments-driver/run.sh -e i -ec l -sp fk -m f -msm od -msx x -em l
+```
 
-### Kafka Overhead Experiments
+In this case, Apache Flink and Kafka Streams will be chosen as stream processor. The FFNN model will be served using Deep
+Learning 4j and ONNX.
+The test bed will execute the large experiments, with high input rates. No external server will be tested.
+
+If executed in local mode (`-em l`), the `run.sh` script will start all the needed daemon processes for the following
+components: the input producer, the data processor, the data component, and the external server.
+
+In cluster mode (`-em c`), the `run.sh` script assumes that Kafka is already running on a cluster remotely, and that the
+daemons have been started and have accessible endpoints. The script `experiments-driver/scripts/start-daemon.sh` is used
+to start the daemons. The following command start a daemon process that spawns the data processor component:
+
+```bash
+./experiments-driver/scripts/start-daemon.sh -p dp -em l
+```
+
+`start-daemon.sh` has the following options:
+
+```
+Arguments:
+-p     | --process                     Process which will be handled by the daemon: dp=data processor, 
+                                           kp=kafka producer, es-tor=external server torchserve, 
+                                           es-tfs=external server tf-serving, es-rs=external ray serve.
+-em    | --execution-mode              Execution mode: l=local, c=cluster.
+```
+
+After the set of experiments complete, the resulting files will be written under `results/`. The notebooks
+inside `results-analysis` can then be used to plot the throughput and latency measurements.
+
+**NOTE:** A containerized version will soon be available to faciltate deployments on a cluster.
+
+#### Kafka Overhead Experiments
 
 The experiments measuring the overhead introduced by Kafka in the pipeline do not use the Crayfish pipeline, as they
 employ a standalone FLink implementation. To run these experiments, the following script can be used:
@@ -224,6 +222,14 @@ Arguments:
                                          - debug: Run simple experiment configs in the debug folder.
 -em    | --execution-mode              Execution mode: l=local, c=cluster.
 ```
+
+#### Development Notes
+
+If the experiments are stopped before they complete, please be aware that multiple background threads might be still 
+hanging (e.g., the daemon threads waiting for wakeup signals). In this case, please make sure to kill all of them
+manually. You can use the `ps` command to find their PIDs.
+
+
 
 ## Extending Crayfish
 
@@ -307,7 +313,7 @@ Crayfish adapter = new MyCrayfishAdapter<DL4JModel>(DL4JModel.class, config);
 adapter.run();
 ```
 
-The adapters for Apache Flink, Kafka Streams, and Spark Structured Streaming can be found under [crayfish-java/adapters/](https://github.com/soniahorchidan/crayfish23/tree/main/crayfish-java/adapters/src/main/java).  
+The adapters for Apache Flink, Kafka Streams, and Spark Structured Streaming can be found under [crayfish-java/adapters/](https://github.com/soniahorchidan/crayfish23/tree/main/crayfish-java/adapters/src/main/java).
 
 ### New Model Serving Tools
 

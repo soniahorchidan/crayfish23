@@ -50,7 +50,6 @@ public class ONNXModel extends CrayfishModel implements Serializable {
 
         // Load the ONNX model
         this.session = env.createSession(modelContent, sessionOptions);
-        env.createSession(modelContent, sessionOptions);
 
         // Retrieve information about the model
         NodeInfo inputInfo = this.session.getInputInfo().values().iterator().next();

@@ -1,0 +1,18 @@
+version: '3.3'
+services:
+  server:
+    container_name: 'crayfish-tf-serving'
+    image: tensorflow/serving:latest
+    #    runtime: nvidia
+    ports:
+      - '8501:8501'
+      - '8500:8500'
+    volumes:
+      - './models:/models'
+    command:
+      - '--model_config_file=/models/models.config'
+      - '--model_config_file_poll_wait_seconds=60'
+      - '--tensorflow_intra_op_parallelism=1'
+      - '--tensorflow_inter_op_parallelism=1'
+      - '--enable_batching=true'
+      - '--batching_parameters_file=/models/batching.config'
