@@ -63,12 +63,24 @@ ENDPOINT=$(echo "$MR" | tr ',' '\n')
 HOST=$(echo "$ENDPOINT" | cut -d ":" -f 1) # TODO: sanity check? (i.e., check if it is the same as in config file)
 PORT=$(echo "$ENDPOINT" | cut -d ":" -f 2)
 
+
+NC_VERSION=$(nc -h 2>&1 | grep -i "gnu") 
+if [[ -z "$NC_VERSION" ]]; then
+    echo "netcat not found. Please install it."
+    exit 1
+fi
+
 while true; do
   echo "Ready! Waiting for the main server (KC). Listening to port $PORT"
   START=true
   while $START; do
-    #    EXP_ARGS=$(python3 ./experiments-driver/tools/netcat_server.py "$PORT")
-    EXP_ARGS=$(nc -l "$PORT")
+
+    if [[ "$NC_VERSION" == *"gnu"* ]]; then  # GNU netcat
+      EXP_ARGS=$(nc -l -p "$PORT")
+    else  # Assuming BSD/traditional netcat
+      EXP_ARGS=$(nc -l "$PORT")
+    fi
+   
     if [[ "$EXP_ARGS" == *CRAYFISH* ]]; then
       START=false
       pattern="CRAYFISH"
@@ -150,8 +162,12 @@ while true; do
 
   START=true
   while $START; do
-    #    EXP_ARGS=$(python3 ./experiments-driver/tools/netcat_server.py "$PORT")
-    EXP_ARGS=$(nc -l $PORT)
+    if [[ "$NC_VERSION" == *"gnu"* ]]; then  # GNU netcat
+      EXP_ARGS=$(nc -l -p "$PORT")
+    else  # Assuming BSD/traditional netcat
+      EXP_ARGS=$(nc -l "$PORT")
+    fi
+
     if [[ "$EXP_ARGS" == *CRAYFISH* ]]; then
       START=false
       pattern="CRAYFISH"

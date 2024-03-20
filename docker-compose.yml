@@ -9,6 +9,7 @@ services:
 
   kafka:
     image: confluentinc/cp-kafka:latest
+    container_name: crayfish-kafka-1
     depends_on:
       - zookeeper
     ports:

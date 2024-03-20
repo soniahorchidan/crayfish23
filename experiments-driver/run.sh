@@ -85,10 +85,21 @@ sendSignal() {
   HOST=$1
   PORT=$2
   MSG=$3
-  #  python3 ./experiments-driver/tools/netcat_client.py "$HOST" "$PORT" "$MSG"
-#  echo $MSG | nc $HOST $PORT -c
- echo $MSG | nc $HOST $PORT -q 0
+  NC_VERSION=$4
+  echo $MSG | nc $HOST $PORT -q 0
+  if [[ "$nc_version" == *"gnu"* ]]; then  # GNU netcat
+    echo $MSG | nc $HOST $PORT -c
+  else  # Assuming BSD/traditional netcat
+    echo $MSG | nc $HOST $PORT -q 0
+  fi
 }
+
+
+nc_version=$(nc -h 2>&1 | grep -i "gnu") 
+if [[ -z "$nc_version" ]]; then
+  echo "netcat not found. Please install it."
+  exit 1
+fi
 
 # Set configs defaults
 set_defaults
@@ -365,19 +376,19 @@ for SP in "${ALL_SP[@]}"; do
                          \"kafka-output-topic\": \"$KAFKA_OUTPUT_TOPIC\"}"
 
           # Important to start the data processor first to ensure we do not lose datapoints
-          echo "$EXP_FOOTPRINT" | sendSignal "$HOST_DP" "$PORT_DP" "$EXP_FOOTPRINT"
+          echo "$EXP_FOOTPRINT" | sendSignal "$HOST_DP" "$PORT_DP" "$EXP_FOOTPRINT" "$NC_VERSION"
           log "Sent wakeup signal to the data processor at $HOST_DP $PORT_DP."
           sleep 30 # Let it have time to start. Ray is especially slow
 
           # Start external server, if required by the experiment
           if [[ $IS_EMBEDDED == 'false' ]]; then
             if [[ $MF == 'torchserve' ]]; then
-              sendSignal "$HOST_ES_TOR" "$PORT_ES_TOR" "$EXP_FOOTPRINT"
+              sendSignal "$HOST_ES_TOR" "$PORT_ES_TOR" "$EXP_FOOTPRINT" "$NC_VERSION"
             elif [[ $MF == 'tf-serving' ]]; then
               if [[ $SP == 'ray' ]]; then
-                sendSignal "$HOST_ES_RS" "$PORT_ES_RS" "$EXP_FOOTPRINT"
+                sendSignal "$HOST_ES_RS" "$PORT_ES_RS" "$EXP_FOOTPRINT" "$NC_VERSION"
               else
-                sendSignal "$HOST_ES_TFS" "$PORT_ES_TFS" "$EXP_FOOTPRINT"
+                sendSignal "$HOST_ES_TFS" "$PORT_ES_TFS" "$EXP_FOOTPRINT" "$NC_VERSION"
               fi
             fi
             log "Sent signal to the external server."
@@ -385,7 +396,7 @@ for SP in "${ALL_SP[@]}"; do
           fi
 
           # Start input producer
-          sendSignal "$HOST_KP" "$PORT_KP" "$EXP_FOOTPRINT"
+          sendSignal "$HOST_KP" "$PORT_KP" "$EXP_FOOTPRINT" "$NC_VERSION"
           log "Sent signal to the kafka producer at $HOST_KP $PORT_KP."
 
           # wait for kafka consumer to finish
@@ -394,17 +405,17 @@ for SP in "${ALL_SP[@]}"; do
           sleep 5
 
           # Send CLEANUP signal to machines to kill processes
-          sendSignal "$HOST_KP" "$PORT_KP" "CRAYFISHCLEANUP"
-          sendSignal "$HOST_DP" "$PORT_DP" "CRAYFISHCLEANUP"
+          sendSignal "$HOST_KP" "$PORT_KP" "CRAYFISHCLEANUP" "$NC_VERSION"
+          sendSignal "$HOST_DP" "$PORT_DP" "CRAYFISHCLEANUP" "$NC_VERSION"
           if [[ $IS_EMBEDDED == 'false' ]]; then
             # TODO: combine to run on one endpoint only
             if [[ $MF == 'torchserve' ]]; then
-              sendSignal "$HOST_ES_TOR" "$PORT_ES_TOR" "CRAYFISHCLEANUP"
+              sendSignal "$HOST_ES_TOR" "$PORT_ES_TOR" "CRAYFISHCLEANUP" "$NC_VERSION"
             elif [[ $MF == 'tf-serving' ]]; then
               if [[ $SP == 'ray' ]]; then
-                sendSignal "$HOST_ES_RS" "$PORT_ES_RS" "CRAYFISHCLEANUP"
+                sendSignal "$HOST_ES_RS" "$PORT_ES_RS" "CRAYFISHCLEANUP" "$NC_VERSION"
               else
-                sendSignal "$HOST_ES_TFS" "$PORT_ES_TFS" "CRAYFISHCLEANUP"
+                sendSignal "$HOST_ES_TFS" "$PORT_ES_TFS" "CRAYFISHCLEANUP" "$NC_VERSION"
               fi
             fi
           fi
@@ -422,11 +433,11 @@ done
 
 #Send EXIT signal to daemons
 log "Experiments ended! Cleaning up."
-sendSignal "$HOST_KP" "$PORT_KP" "CRAYFISHEXIT"
-sendSignal "$HOST_DP" "$PORT_DP" "CRAYFISHEXIT"
-sendSignal "$HOST_ES_TOR" "$PORT_ES_TOR" "CRAYFISHEXIT"
-sendSignal "$HOST_ES_TFS" "$PORT_ES_TFS" "CRAYFISHEXIT"
-sendSignal "$HOST_ES_RS" "$PORT_ES_RS" "CRAYFISHEXIT"
+sendSignal "$HOST_KP" "$PORT_KP" "CRAYFISHEXIT" "$NC_VERSION"
+sendSignal "$HOST_DP" "$PORT_DP" "CRAYFISHEXIT" "$NC_VERSION"
+sendSignal "$HOST_ES_TOR" "$PORT_ES_TOR" "CRAYFISHEXIT" "$NC_VERSION"
+sendSignal "$HOST_ES_TFS" "$PORT_ES_TFS" "CRAYFISHEXIT" "$NC_VERSION"
+sendSignal "$HOST_ES_RS" "$PORT_ES_RS" "CRAYFISHEXIT" "$NC_VERSION"
 
 pkill -P $$
 log "Done."
