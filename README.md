@@ -1,5 +1,19 @@
 # Crayfish: Navigating the Labyrinth of Machine Learning Inference in Stream Processing Systems
 
+This repository includes Crayfish, an extensible benchmarking framework that facilitates designing and executing comprehensive evaluation studies of streaming inference pipelines. Crayfish is described in our [EDBT'24 paper]([https://dl.acm.org/doi/pdf/10.1145/3533702.3534920](https://openproceedings.org/2024/conf/edbt/paper-156.pdf)), which also includes the first systematic performance evaluation study of model serving integration tools in Stream Processing Frameworks.
+
+You can cite the paper using the BibTeX below:
+
+```
+@inproceedings{horchidan2024crayfish,
+  title={Crayfish: Navigating the Labyrinth of Machine Learning Inference in Stream Processing Systems.},
+  author={Horchidan, Sonia and Chen, Po-Hao and Kritharakis, Emmanouil and Carbone, Paris and Kalavri, Vasiliki},
+  booktitle={EDBT},
+  pages={676--689},
+  year={2024}
+}
+```
+
 ## Project Structure
 
 ```
@@ -7,11 +21,11 @@
 |-- core                   # Crayfish Java core components and abstractions.
 |-- crayfish-java          # Crayfish adapters (i.e., FLink, Spark Structured Streaming, Kafka Streams).
 |-- experiments-driver     # Experiments testbed and configurations.
-|-- input-producer         # Input Producer Component. Contains a random input generator .      
+|-- input-producer         # Input Producer Component. Contains a random input generator.      
 |-- output-consumer        # Output Consumer Component. Writes latency measurements to persistent storage.   
 |-- rayfish                # Crayfish Ray Adapter.   
 |-- resources              # Pre-trained models and training scripts.  
-`-- results-analysis       # Notebooks to analyze the results.
+`-- results-analysis       # Notebooks used to analyze the results.
 ```
 
 
