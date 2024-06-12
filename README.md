@@ -1,6 +1,6 @@
 # Crayfish: Navigating the Labyrinth of Machine Learning Inference in Stream Processing Systems
 
-This repository includes Crayfish, an extensible benchmarking framework that facilitates designing and executing comprehensive evaluation studies of streaming inference pipelines. Crayfish is described in our [EDBT'24 paper]([https://dl.acm.org/doi/pdf/10.1145/3533702.3534920](https://openproceedings.org/2024/conf/edbt/paper-156.pdf)), which also includes the first systematic performance evaluation study of model serving integration tools in Stream Processing Frameworks.
+This repository includes Crayfish, an extensible benchmarking framework that facilitates designing and executing comprehensive evaluation studies of streaming inference pipelines. Crayfish is described in our [EDBT'24 paper](https://openproceedings.org/2024/conf/edbt/paper-156.pdf), which also includes the first systematic performance evaluation study of model serving integration tools in Stream Processing Frameworks.
 
 You can cite the paper using the BibTeX below:
 
